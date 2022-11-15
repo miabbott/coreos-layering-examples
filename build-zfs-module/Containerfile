@@ -1,12 +1,16 @@
 # This example builds the zfs module following the work done at:
 # https://github.com/skateman/atomic-zfs
-FROM quay.io/fedora/fedora-coreos:stable
+FROM fedora:37
 
 #We can't use the `uname -r` as it will pick up the host kernel version 
+RUN dnf install -y kernel
+RUN sudo dnf groupinstall -y "Development Tools"
+
 RUN rpm -qa kernel --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}' > ./kernel-version.txt
 
-RUN rpm-ostree install https://zfsonlinux.org/fedora/zfs-release$(rpm -E %dist).noarch.rpm && \
-    rpm-ostree install flex bison diffutils dkms gcc make perl kernel-modules-$(cat ./kernel-version.txt) kernel-devel-$(cat ./kernel-version.txt) \
-    && rpm-ostree cleanup -m && ostree container commit
+RUN dnf install -y automake libtool gettext autoconf libblkid-devel libtirpc-devel libuuid-devel kernel-modules-$(cat ./kernel-version.txt) kernel-devel-$(cat ./kernel-version.txt)
 
-RUN rpm-ostree install zfs-dkms && rpm-ostree cleanup -m && ostree container commit
+
+RUN curl -L -O https://github.com/openzfs/zfs/releases/download/zfs-2.1.6/zfs-2.1.6.tar.gz && tar xvzf zfs-2.1.6.tar.gz
+RUN cd zfs-2.1.6 && sh autogen.sh && ./configure && make -s -j$(nproc)
+RUN cd zfs-2.1.6 && sudo make install && sudo ldconfig
