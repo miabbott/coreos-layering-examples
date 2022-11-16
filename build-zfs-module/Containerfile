@@ -1,26 +1,25 @@
 FROM quay.io/fedora/fedora-coreos:stable as kernel-query
-RUN rpm -qa kernel --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}' > ./kernel-version.txt
+RUN rpm -qa kernel --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}' > /kernel-version.txt
 
-FROM fedora:36 as builder
+# Using https://openzfs.github.io/openzfs-docs/Developer%20Resources/Custom%20Packages.html
+FROM registry.fedoraproject.org/fedora:36 as builder
 COPY --from=kernel-query /kernel-version.txt /kernel-version.txt
-RUN cd /etc/yum.repos.d && curl -L -O https://src.fedoraproject.org/rpms/fedora-repos/raw/f37/f/fedora-updates-archive.repo &&\
+WORKDIR /etc/yum.repos.d
+RUN curl -L -O https://src.fedoraproject.org/rpms/fedora-repos/raw/f37/f/fedora-updates-archive.repo && \
     sed -i 's/enabled=AUTO_VALUE/enabled=true/' fedora-updates-archive.repo
 #We can't use the `uname -r` as it will pick up the host kernel version 
-RUN dnf install -y kernel-$(cat ./kernel-version.txt)
-RUN sudo dnf groupinstall -y "Development Tools"
-RUN dnf install -y automake libtool autoconf libblkid-devel libtirpc-devel libuuid-devel \
-    kernel-modules-$(cat ./kernel-version.txt) kernel-devel-$(cat ./kernel-version.txt)
+RUN dnf install -y dkms gcc make autoconf automake libtool rpm-build libtirpc-devel libblkid-devel libuuid-devel libudev-devel openssl-devel zlib-devel libaio-devel libattr-devel elfutils-libelf-devel kernel-$(cat /kernel-version.txt) python3 python3-devel python3-setuptools python3-cffi libffi-devel git ncompress libcurl-devel
+WORKDIR /
 RUN curl -L -O https://github.com/openzfs/zfs/releases/download/zfs-2.1.6/zfs-2.1.6.tar.gz && tar xzf zfs-2.1.6.tar.gz
-RUN cd zfs-2.1.6 && sh autogen.sh && ./configure && make -s -j$(nproc)
+WORKDIR /zfs-2.1.6
+RUN ./configure && make -j1 rpm-utils rpm-kmod
 
 FROM quay.io/fedora/fedora-coreos:stable
 #TODO check same kernel as builder
-RUN rpm-ostree install make \
-    #&& rpm -qa kernel --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}' > ./kernel-version.txt && \
-    #rpm-ostree install kernel-modules-$(cat ./kernel-version.txt) kernel-devel-$(cat ./kernel-version.txt) 
-    && rpm-ostree cleanup -m && ostree container commit
-COPY --from=builder /zfs-2.1.6 /zfs-2.1.6
-#This fails, investigating: 
+COPY --from=builder /zfs-2.1.6/*.rpm /
+RUN rpm-ostree install /*.$(uname -p).rpm && \
+    rpm-ostree cleanup -m && \
+    ostree container commit
 #RUN cd zfs-2.1.6 && sudo make install && sudo ldconfig
 #
 #make[5]: Nothing to be done for 'install-exec-am'.
